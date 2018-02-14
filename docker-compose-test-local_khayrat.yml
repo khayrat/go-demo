@@ -4,7 +4,7 @@ services:
 
   app:
     build: .
-    image: localhost:5000/go-demo
+    image: go-demo
 
   unit:
     image: localhost:5000/golang:1.6
@@ -15,7 +15,7 @@ services:
     command: bash -c "go get -d -v -t && go test --cover -v ./... && go build -v -o go-demo"
 
   staging-dep:
-    image: localhost:5000/go-demo
+    image: go-demo
     ports:
       - 8080:8080
     depends_on:
