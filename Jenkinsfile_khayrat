@@ -1,0 +1,90 @@
+node("docker") {
+    stage("pull") {
+        //git "https://github.com/vfarcic/go-demo.git"
+        git "https://github.com/khayrat/go-demo.git"
+    }
+    
+    withEnv([
+        "COMPOSE_FILE=docker-compose-test-local_khayrat.yml"]) {
+            
+        stage("unit") {
+            sh "docker-compose run --rm unit"
+            sh "docker-compose build app"
+        }
+    
+    
+        stage("integration") {
+            try {
+                sh "docker-compose up -d staging-dep"
+                sh "docker-compose run --rm staging"
+            } catch(e) {
+                error "Integration Tests failed"
+            } finally {
+                sh "docker-compose down"
+            }
+        }
+    
+        stage("publish") {
+            sh "docker tag go-demo localhost:5000/go-demo:2.${env.BUILD_NUMBER}"
+            sh "docker push localhost:5000/go-demo:2.${env.BUILD_NUMBER}"
+        }
+        
+        stage("prelive") {
+            withEnv([
+                "DOCKER_TLS_VERIFY=1",
+                "DOCKER_HOST=tcp://${env.PROD_LIKE_IP}:2376",
+                "DOCKER_CERT_PATH=/machines/${env.PROD_LIKE_NAME}"]) {   
+                
+                sh "docker service update \
+                    --image localhost:5000/go-demo:2.${env.BUILD_NUMBER} \
+                    go-demo"
+            }
+            
+            withEnv(["HOST_IP=localhost"]) {
+              
+                try {
+                    for (i=0; i < 10; i++) {                           
+                        sh "docker-compose run --rm production"
+                    }
+                } catch (e) {
+                    withEnv([
+                        "DOCKER_TLS_VERIFY=1",
+                        "DOCKER_HOST=tcp://${env.PROD_LIKE_IP}:2376",
+                        "DOCKER_CERT_PATH=/machines/${env.PROD_LIKE_NAME}"]) {
+                        
+                        sh "docker service update --rollback go-demo"
+                    }
+                }
+            }
+        }
+
+        stage("live") {
+            withEnv([
+                "DOCKER_TLS_VERIFY=1",
+                "DOCKER_HOST=tcp://${env.PROD_IP}:2376",
+                "DOCKER_CERT_PATH=/machines/${env.PROD_NAME}"]) {   
+                
+                sh "docker service update \
+                    --image localhost:5000/go-demo:2.${env.BUILD_NUMBER} \
+                    go-demo"
+            }
+            
+            withEnv(["HOST_IP=${env.PROD_IP}"]) {
+            
+                try {
+                    for (i=0; i < 10; i++) {                           
+                        sh "docker-compose run --rm production"
+                    }
+                } catch (e) {
+                    withEnv([
+                        "DOCKER_TLS_VERIFY=1",
+                        "DOCKER_HOST=tcp://${env.PROD_IP}:2376",
+                        "DOCKER_CERT_PATH=/machines/${env.PROD_NAME}"]) {
+                        
+                        sh "docker service update --rollback go-demo"
+                    }
+                }
+            }
+        }
+   }
+}
